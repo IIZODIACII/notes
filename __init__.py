@@ -29,6 +29,10 @@ def create_app(test_config=None):
             return view(**kwargs)
         return wrapped_view
 
+    @app.errorhandler(404)
+    def page_not_found(e):
+        return render_template('404.html'), 404
+
     @app.before_request
     def load_user():
         user_id = session.get('user_id')
@@ -70,13 +74,12 @@ def create_app(test_config=None):
 
             if not user or not check_password_hash(user.password, password):
                 error = 'Username or password are incorrect'
+                flash(error, category='error')
 
             if error is None:
                 session.clear()
                 session['user_id'] = user.id
-                return redirect(url_for('index'))
-
-            flash(error, category='error')
+                return redirect(url_for('note_index'))
         return render_template('log_in.html')
 
     @app.route('/log_out', methods=('GET', 'DELETE'))
@@ -84,10 +87,6 @@ def create_app(test_config=None):
         session.clear()
         flash('Successfully logged out.', 'success')
         return redirect(url_for('log_in'))
-
-    @app.route('/')
-    def index():
-        return 'Index'
 
     @app.route('/notes/new', methods=('GET', 'POST'))
     @require_login
@@ -116,4 +115,43 @@ def create_app(test_config=None):
     def note_index():
         return render_template('note_index.html', notes=g.user.notes)
 
+    @app.route('/notes/<note_id>/edit', methods=('GET', 'PATCH', 'PUT', 'POST'))
+    @require_login
+    def note_update(note_id):
+        note = Note.query.filter_by(
+            user_id=g.user.id, id=note_id).first_or_404()
+        if request.method in ['PATCH', 'PUT', 'POST']:
+            title = request.form['title']
+            body = request.form['body']
+            error = None
+
+            if not title:
+                error = 'Title is required.'
+
+            if not error:
+                note.title = title
+                note.body = body
+                db.session.add(note)
+                db.session.commit()
+                flash(f"Successfully updated note: '{title}'", 'success')
+                return redirect(url_for('note_index'))
+
+            flash(error, 'error')
+
+        return render_template('note_update.html', note=note)
+
+    @app.route('/notes/<note_id>/delete', methods=('GET', 'DELETE'))
+    @require_login
+    def note_delete(note_id):
+        note = Note.query.filter_by(
+            user_id=g.user.id, id=note_id).first_or_404()
+        if note:
+            db.session.delete(note)
+            db.session.commit()
+            flash(f"Successfully deleted note: '{note.title}'", 'success')
+            return redirect(url_for('note_index'))
+
+    @app.route('/')
+    def index():
+        return redirect(url_for('note_index'))
     return app
